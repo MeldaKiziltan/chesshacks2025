@@ -172,7 +172,7 @@ def validate_model(model, loader, device):
     image=modal.Image.debian_slim().pip_install("torch", "python-chess", "numpy"),
     volumes={"/data": data_vol},
     gpu="A100",
-    timeout=108000  # 30 hours
+    timeout=86400  # 30 hours
 )
 def train_on_modal():
     print("--- Starting Training on Modal ---")
