@@ -8,7 +8,7 @@ import tensorflow as tf
 import os
 
 # --- Bot Configuration ---
-SEARCH_DEPTH = 3  # 3 is fast, 4 is stronger.
+SEARCH_DEPTH = 1  # 3 is fast, 4 is stronger.
 MODEL_FILE_NAME = "my_chess_cnn.keras"
 
 # --- 1. Load the Trained ML Model ---
