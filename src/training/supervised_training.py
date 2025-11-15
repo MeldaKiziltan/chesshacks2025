@@ -31,7 +31,7 @@ def get_device() -> torch.device:
 def tiny_supervised_train(
     pgn_path: Optional[str] = None,
     batch_size: int = 128,
-    epochs: int = 10,
+    epochs: int = 1,
     lr: float = 3e-4,
     num_workers: int = 4,
     precompute: bool = True,
@@ -39,7 +39,9 @@ def tiny_supervised_train(
     val_split: float = 0.05,
     checkpoint_dir: str = "checkpoints",
     save_every: int = 1,
+    init_checkpoint: Optional[str] = None,   # <--- NEW
 ) -> None:
+
     """
     Train the Anon model on PGN data.
 
@@ -130,9 +132,21 @@ def tiny_supervised_train(
     # -------------------------
     # Model, optimizer, scheduler
     # -------------------------
+
     model = Anon().to(device)
+
+    if init_checkpoint is not None and Path(init_checkpoint).is_file():
+        print(f"[train] Initializing model from checkpoint: {init_checkpoint}")
+        ckpt = torch.load(init_checkpoint, map_location=device)
+        state_dict = ckpt.get("model_state", ckpt)  # support both wrapped/unwrapped
+        model.load_state_dict(state_dict)
+    else:
+        if init_checkpoint is not None:
+            print(f"[train] Warning: init checkpoint not found at {init_checkpoint} – training from scratch.")
+
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=5, gamma=0.5)
+
 
     # AMP (CUDA only)
     use_amp = device.type == "cuda"
@@ -275,7 +289,12 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader num_workers")
-
+    parser.add_argument(
+        "--init-from",
+        type=str,
+        default=None,
+        help="Optional checkpoint (.pt) to initialize model weights from",
+    )
     parser.add_argument(
         "--no-precompute",
         dest="precompute",
@@ -328,6 +347,7 @@ def main() -> None:
         val_split=args.val_split,
         checkpoint_dir=args.checkpoint_dir,
         save_every=args.save_every,
+        init_checkpoint=args.init_from,
     )
 
 

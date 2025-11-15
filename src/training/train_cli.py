@@ -22,8 +22,11 @@ LOCAL_MODEL_PATH = "best_model.pt" # Will save to your current directory
 
 # --- Function to upload PGN to Volume ---
 @app.function(
-    image=modal.Image.debian_slim().add_local_file(
-        LOCAL_PGN_PATH, remote_path="/tmp/train.pgn"
+    image = (
+    modal.Image.debian_slim()
+    .pip_install("torch", "python-chess", "numpy", "tqdm", "huggingface-hub")
+    .env({"PYTHONPATH": "/root:/root/src"})
+    .add_local_dir(src_dir, remote_path="/root/src")
     ),
     volumes={"/data": data_vol},
 )
@@ -72,15 +75,23 @@ def download_best_model():
 @app.function(
     image=(
         modal.Image.debian_slim()
-        .pip_install("torch", "python-chess", "numpy", "tqdm")
-        # --- FIX: Add /root/src to the PYTHONPATH ---
-        .env({"PYTHONPATH": "/root:/root/src"})
+        .pip_install(
+            "torch",
+            "python-chess",
+            "numpy",
+            "tqdm",
+            "huggingface-hub",
+        )
+        .env({
+            "PYTHONPATH": "/root:/root/src",
+        })
         .add_local_dir(src_dir, remote_path="/root/src")
     ),
     volumes={"/data": data_vol},
     gpu="A100",
-    timeout=86400, # Set to 24h max
+    timeout=86400, # 24h max runtime
 )
+
 def train_on_modal(
     pgn_path: str,
     epochs: int,
@@ -90,15 +101,21 @@ def train_on_modal(
     num_workers: int,
     precompute: bool,
     lr: float,
+    init_checkpoint: str | None = None,
 ):
     print("Modal: importing and starting supervised trainer...")
-    
+
     # --- Check if PGN file exists ---
     if not os.path.exists(pgn_path):
         print(f"Error: PGN file not found at {pgn_path} in the volume.", file=sys.stderr)
         print("Please run `modal run src/training/train_cli.py --upload` first.", file=sys.stderr)
         return
-        
+
+    # Optional: check if init_checkpoint exists (if provided)
+    if init_checkpoint is not None and not os.path.exists(init_checkpoint):
+        print(f"[warn] init_checkpoint not found at {init_checkpoint} – will train from scratch.", file=sys.stderr)
+        init_checkpoint = None
+
     from src.training.supervised_training import tiny_supervised_train
 
     tiny_supervised_train(
@@ -112,6 +129,7 @@ def train_on_modal(
         val_split=0.05,
         checkpoint_dir=checkpoint_dir,
         save_every=1,
+        init_checkpoint=init_checkpoint,
     )
 
 
@@ -120,7 +138,7 @@ def train_on_modal(
 def main(
     upload: bool = False,
     use_modal: bool = False,
-    download: bool = False, # <-- NEW FLAG
+    download: bool = False,
     pgn: str = "/data/train.pgn", 
     cache_path: str = "/data/pgn_cache.pt",
     checkpoint_dir: str = "/data/checkpoints",
@@ -129,7 +147,9 @@ def main(
     num_workers: int = 4,
     no_precompute: bool = False,
     lr: float = 3e-4,
+    init_from: str | None = None,
 ):
+
     if upload:
         if not os.path.exists(LOCAL_PGN_PATH):
             print(f"Error: Local file not found at {LOCAL_PGN_PATH}", file=sys.stderr)
@@ -155,7 +175,6 @@ def main(
     # --- END NEW LOGIC ---
 
     precompute = not no_precompute
-
     if use_modal:
         print("Starting remote Modal training...")
         train_on_modal.remote(
@@ -167,6 +186,7 @@ def main(
             num_workers=num_workers,
             precompute=precompute,
             lr=lr,
+            init_checkpoint=init_from,
         )
     else:
         print("Running training locally (no Modal)...")
