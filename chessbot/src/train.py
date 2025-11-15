@@ -2,11 +2,11 @@ import argparse
 import modal
 
 # Modal setup: persisted volume for PGNs / checkpoints
-stub = modal.Stub(name="chess-training-modal")
+app = modal.app(name="chess-training-modal")
 data_vol = modal.Volume.persisted("chess-data-vol")
 
 
-@stub.function(
+@app.function(
     image=modal.Image.debian_slim().pip_install("torch", "python-chess", "numpy", "tqdm"),
     volumes={"/data": data_vol},
     gpu="A100",
@@ -22,13 +22,7 @@ def train_on_modal(
     precompute: bool = True,
     lr: float = 3e-4,
 ):
-    """
-    Entrypoint that runs the existing supervised trainer inside Modal.
-    The repository code (src.training.supervised_training.tiny_supervised_train)
-    will be imported and executed inside the Modal container.
-    """
     print("Modal: importing and starting supervised trainer...")
-    # import inside function so Modal's image environment picks up the repo runtime
     from src.training.supervised_training import tiny_supervised_train
 
     tiny_supervised_train(
@@ -45,15 +39,8 @@ def train_on_modal(
     )
 
 
-@stub.local_entrypoint()
+@app.local_entrypoint()
 def main():
-    """
-    Local CLI to either launch Modal remote training or run trainer locally.
-    Example local run:
-      python -m src.train --pgn /path/to/games.pgn --epochs 2 --batch-size 64 --no-modal
-    Example Modal run (will mount persisted volume 'chess-data-vol'):
-      python -m src.train --pgn /data/train.pgn --use-modal
-    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--pgn", required=True, help="Path to PGN file (local or on /data for Modal)")
     parser.add_argument("--epochs", type=int, default=3)
@@ -68,7 +55,7 @@ def main():
 
     if args.use_modal:
         print("Starting remote Modal training...")
-        # pass args through to the Modal function
+        # train_on_modal gets a remote() handle from the @app.function decorator
         train_on_modal.remote(
             pgn_path=args.pgn,
             epochs=args.epochs,
@@ -94,7 +81,7 @@ def main():
             val_split=0.05,
             checkpoint_dir=args.checkpoint_dir,
             save_every=1,
-            )
+        )
             
 
 
