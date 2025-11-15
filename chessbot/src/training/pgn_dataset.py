@@ -1,7 +1,7 @@
 from pathlib import Path
 import chess
 import chess.pgn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 import torch
 from ..features import move_to_index, board_to_tensor
 from typing import Optional
