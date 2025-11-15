@@ -1,40 +1,61 @@
 from .utils import chess_manager, GameContext
-from chess import Move
-import random
-import time
+from .player import Player
+import torch
 
-# Write code here that runs once
-# Can do things like load models from huggingface, make connections to subprocesses, etcwenis
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
 
+# Initialize the neural network-powered player once at startup
+player = None
+
+def initialize_player():
+    """Load the model once when the service starts."""
+    global player
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    player = Player(device=device)
+    print(f"✓ Chess player initialized (device: {device})")
+
+
+# ============================================================================
+# GAME LOOP
+# ============================================================================
 
 @chess_manager.entrypoint
-def test_func(ctx: GameContext):
-    # This gets called every time the model needs to make a move
-    # Return a python-chess Move object that is a legal move for the current position
-
-    print("Cooking move...")
-    print(ctx.board.move_stack)
-    time.sleep(0.1)
-
-    legal_moves = list(ctx.board.generate_legal_moves())
-    if not legal_moves:
-        ctx.logProbabilities({})
-        raise ValueError("No legal moves available (i probably lost didn't i)")
-
-    move_weights = [random.random() for _ in legal_moves]
-    total_weight = sum(move_weights)
-    # Normalize so probabilities sum to 1
-    move_probs = {
-        move: weight / total_weight
-        for move, weight in zip(legal_moves, move_weights)
-    }
-    ctx.logProbabilities(move_probs)
-
-    return random.choices(legal_moves, weights=move_weights, k=1)[0]
+def select_move(ctx: GameContext):
+    """Called every time the bot needs to make a move.
+    
+    The neural network evaluates the position and selects a move based on:
+    - Policy head: learns which moves are good
+    - Value head: evaluates the board position (can be used for search later)
+    
+    Args:
+        ctx: GameContext with current board state and utilities
+        
+    Returns:
+        A legal chess.Move object
+    """
+    global player
+    
+    if player is None:
+        raise RuntimeError("Player not initialized. Call initialize_player() first.")
+    
+    # Get the best move from the neural network
+    move, move_probabilities = player.select_move(ctx.board, temperature=1.0)
+    
+    # Log the move probabilities for the game engine
+    ctx.logProbabilities(move_probabilities)
+    
+    return move
 
 
 @chess_manager.reset
-def reset_func(ctx: GameContext):
-    # This gets called when a new game begins
-    # Should do things like clear caches, reset model state, etc.
+def reset_game_state(ctx: GameContext):
+    """Called at the start of each new game.
+    
+    Can be used to clear caches or reset model state if needed.
+    """
+    # Currently a no-op, but here for future extensions
+    # (e.g., clearing search trees if you add alpha-beta search)
     pass
+
