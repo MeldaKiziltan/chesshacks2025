@@ -29,7 +29,7 @@ def tiny_supervised_train(pgn_path: str = None,
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    ds = PGNDataset(pgn_path, max_games=5000, max_moves_per_game=200, precompute=precompute, cache_path=cache_path)
+    ds = PGNDataset(pgn_path, max_games=500000, max_moves_per_game=200, precompute=precompute, cache_path=cache_path)
     if len(ds) == 0:
         print("Dataset empty. Check PGN or use --demo")
         return

@@ -9,7 +9,7 @@ data_vol = modal.Volume.from_name("chess-data-vol", create_if_missing=True)
 src_dir = os.path.dirname(__file__)
 
 # --- Path to your LOCAL PGN file ---
-LOCAL_PGN_PATH = os.path.join(src_dir, "training", "train.pgn")
+LOCAL_PGN_PATH = os.path.join(src_dir, "training", "combined_train.pgn")
 REMOTE_PGN_PATH = "/data/train.pgn"
 
 # --- NEW: Define Model Paths ---
