@@ -11,7 +11,7 @@ import sys # <-- ADDED
 
 MODEL_FILE = os.path.join(os.path.dirname(__file__), "..", "best_model.pt")
 
-MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model.pt"
+MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model_12mo.pt"
 
 player = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
