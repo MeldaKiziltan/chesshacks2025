@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from ..neural_network import Anon
-from .pgn_dataset import ChessIterableDataset, PGNDataset
+from .pgn_dataset import PGNDataset
 import argparse
 
 
@@ -61,7 +61,9 @@ def tiny_supervised_train(pgn_path: str = None,
     scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=5, gamma=0.5)
 
     use_amp = device.type == "cuda"
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    
+    # --- FIX: Replaced deprecated torch.cuda.amp ---
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     best_val = float('inf')
 
@@ -71,15 +73,22 @@ def tiny_supervised_train(pgn_path: str = None,
         for i, batch in enumerate(train_loader):
             positions, targets, outcomes = batch
 
-            positions = positions.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-            outcomes = outcomes.to(device, non_blocking=True)
+            # --- FIX: Cast positions and outcomes to .float() ---
+            positions = positions.to(device, non_blocking=True).float()
+            targets = targets.to(device, non_blocking=True) # This should be Long, which is correct
+            outcomes = outcomes.to(device, non_blocking=True).float()
 
             opt.zero_grad()
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            
+            # --- FIX: Replaced deprecated torch.cuda.amp ---
+            with torch.amp.autocast("cuda", enabled=use_amp):
                 logits, values = model(positions)
                 loss_policy = F.cross_entropy(logits, targets)
-                loss_value = F.mse_loss(values, outcomes)
+                
+                # --- FIX: Ensure value prediction is also float32 ---
+                # The .float() on `outcomes` above fixes this
+                # We also need to squeeze `values` if it's (Batch, 1) and outcomes is (Batch,)
+                loss_value = F.mse_loss(values.squeeze(), outcomes)
                 loss = loss_policy + loss_value
 
             scaler.scale(loss).backward()
@@ -103,13 +112,19 @@ def tiny_supervised_train(pgn_path: str = None,
             with torch.no_grad():
                 for vbatch in val_loader:
                     vpos, vtgt, vout = vbatch
-                    vpos = vpos.to(device, non_blocking=True)
-                    vtgt = vtgt.to(device, non_blocking=True)
-                    vout = vout.to(device, non_blocking=True)
-                    vlogits, vvals = model(vpos)
-                    vloss_p = F.cross_entropy(vlogits, vtgt)
-                    vloss_v = F.mse_loss(vvals, vout)
-                    val_running += (vloss_p + vloss_v).item()
+                    
+                    # --- FIX: Cast positions and outcomes to .float() ---
+                    vpos = vpos.to(device, non_blocking=True).float()
+                    vtgt = vtgt.to(device, non_blocking=True) # Long, correct.
+                    vout = vout.to(device, non_blocking=True).float()
+
+                    # Wrap validation in autocast as well for consistency
+                    with torch.amp.autocast("cuda", enabled=use_amp):
+                        vlogits, vvals = model(vpos)
+                        vloss_p = F.cross_entropy(vlogits, vtgt)
+                        vloss_v = F.mse_loss(vvals.squeeze(), vout)
+                        val_running += (vloss_p + vloss_v).item()
+                        
             val_loss = val_running / max(1, len(val_loader))
             print(f"Epoch {epoch} completed. Train loss: {avg_train:.4f} Val loss: {val_loss:.4f}")
         else:
@@ -135,7 +150,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train a chess neural network from PGN files")
     parser.add_argument("--pgn", required=True, help="Path to PGN file or directory containing PGNs")
     parser.add_argument("--batch-size", type=int, default=128, help="Training batch size")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_group("--epochs", type=int, default=10, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader num_workers")
     parser.add_argument("--no-precompute", dest="precompute", action="store_false", help="Disable precomputing dataset tensors")
