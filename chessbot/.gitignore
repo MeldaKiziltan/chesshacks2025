@@ -1,9 +1,0 @@
-__pycache__
-.venv
-venv
-.env.local
-.env
-devtools
-/src/training/
-/chessData.csv
-/chessData.csv.zip
