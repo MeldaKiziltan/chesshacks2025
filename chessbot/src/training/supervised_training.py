@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from ..neural_network import Anon
-from .pgn_dataset import PGNDataset
+from .pgn_dataset import ChessIterableDataset, PGNDataset
 import argparse
 
 
