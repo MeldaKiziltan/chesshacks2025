@@ -8,3 +8,5 @@ devtools
 /chessData.csv
 /chessData.csv.zip
 devtools/node_modules/
+*.pt
+best_model.pt
