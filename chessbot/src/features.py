@@ -95,6 +95,30 @@ def board_to_tensor(board: chess.Board) -> Tensor:
 # Move Index Helpers
 # -------------------------
 
+_QUEEN_MOVES = [(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0),(0,1),(0,2),(0,3),(0,4),(0,5),(0,6),(0,7),(-1,0),(-2,0),(-3,0),(-4,0),(-5,0),(-6,0),(-7,0),(0,-1),(0,-2),(0,-3),(0,-4),(0,-5),(0,-6),(0,-7),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(-1,1),(-2,2),(-3,3),(-4,4),(-5,5),(-6,6),(-7,7),(-1,-1),(-2,-2),(-3,-3),(-4,-4),(-5,-5),(-6,-6),(-7,-7),(1,-1),(2,-2),(3,-3),(4,-4),(5,-5),(6,-6),(7,-7)]
+_KNIGHT_MOVES = [(2,1),(1,2),(-1,2),(-2,1),(-2,-1),(-1,-2),(1,-2),(2,-1)]
+_PAWN_PROMOTIONS = [(1,1),(1,0),(1,-1)]; _PROMOTION_TYPES = [chess.KNIGHT,chess.BISHOP,chess.ROOK]
+_MOVE_TO_LABEL_MAP = {}; _LABEL_TO_MOVE_MAP = {}
+def _build_move_maps():
+    idx = 0
+    for from_sq in range(64):
+        from_row, from_col = divmod(from_sq, 8)
+        for dr, df in _QUEEN_MOVES:
+            to_row, to_col = from_row + dr, from_col + df
+            if 0 <= to_row < 8 and 0 <= to_col < 8: move = chess.Move(from_sq, to_row * 8 + to_col); _MOVE_TO_LABEL_MAP[move] = idx; _LABEL_TO_MOVE_MAP[idx] = move
+            idx += 1
+        for dr, df in _KNIGHT_MOVES:
+            to_row, to_col = from_row + dr, from_col + df
+            if 0 <= to_row < 8 and 0 <= to_col < 8: move = chess.Move(from_sq, to_row * 8 + to_col); _MOVE_TO_LABEL_MAP[move] = idx; _LABEL_TO_MOVE_MAP[idx] = move
+            idx += 1
+        for dr, df in _PAWN_PROMOTIONS:
+            for prom_piece in _PROMOTION_TYPES:
+                to_row, to_col = from_row + dr, from_col + df
+                if 0 <= to_row < 8 and 0 <= to_col < 8: move = chess.Move(from_sq, to_row * 8 + to_col, promotion=prom_piece); _MOVE_TO_LABEL_MAP[move] = idx; _LABEL_TO_MOVE_MAP[idx] = move
+                idx += 1
+_build_move_maps()
+
+
 def move_to_index(move: chess.Move) -> int:
     return move.from_square * 64 + move.to_square
 
@@ -109,39 +133,39 @@ def index_to_move(index: int) -> chess.Move:
     return chess.Move(from_sq, to_sq)
 
 
-def choose_move(model, board: chess.Board, device='cpu', sample=False, temperature=1.0) -> chess.Move:
-    """Given a board, return a python-chess Move chosen by the network.
-    - apply legal move mask
-    - either pick argmax or sample from distribution
-    """
-    model.eval()
-    tensor = board_to_tensor(board).unsqueeze(0).to(device)  # [1,C,8,8]
-    with torch.no_grad():
-        logits, value = model(tensor)
-    logits = logits.squeeze(0)  # [ACTION_SIZE]
-
-    # compute probabilities
-    if temperature != 1.0:
-        logits = logits / temperature
-    probs = F.softmax(logits, dim=0)
-
-    # legal mask
-    legal = list(board.legal_moves)
-    if len(legal) == 0:
-        return None
-    legal_indices = [move_to_index(m) for m in legal]
-    mask = torch.zeros_like(probs)
-    mask[legal_indices] = 1.0
-    probs = probs * mask
-    s = probs.sum().item()
-    if s <= 0:
-        # numerical safety: fallback to uniform over legal
-        chosen = random.choice(legal)
-        return chosen
-    probs = probs / probs.sum()
-
-    if sample:
-        idx = torch.multinomial(probs, num_samples=1).item()
-    else:
-        idx = torch.argmax(probs).item()
-    return index_to_move(idx)
+# def choose_move(model, board: chess.Board, device='cpu', sample=False, temperature=1.0) -> chess.Move:
+#     """Given a board, return a python-chess Move chosen by the network.
+#     - apply legal move mask
+#     - either pick argmax or sample from distribution
+#     """
+#     model.eval()
+#     tensor = board_to_tensor(board).unsqueeze(0).to(device)  # [1,C,8,8]
+#     with torch.no_grad():
+#         logits, value = model(tensor)
+#     logits = logits.squeeze(0)  # [ACTION_SIZE]
+#
+#     # compute probabilities
+#     if temperature != 1.0:
+#         logits = logits / temperature
+#     probs = F.softmax(logits, dim=0)
+#
+#     # legal mask
+#     legal = list(board.legal_moves)
+#     if len(legal) == 0:
+#         return None
+#     legal_indices = [move_to_index(m) for m in legal]
+#     mask = torch.zeros_like(probs)
+#     mask[legal_indices] = 1.0
+#     probs = probs * mask
+#     s = probs.sum().item()
+#     if s <= 0:
+#         # numerical safety: fallback to uniform over legal
+#         chosen = random.choice(legal)
+#         return chosen
+#     probs = probs / probs.sum()
+#
+#     if sample:
+#         idx = torch.multinomial(probs, num_samples=1).item()
+#     else:
+#         idx = torch.argmax(probs).item()
+#     return index_to_move(idx)
