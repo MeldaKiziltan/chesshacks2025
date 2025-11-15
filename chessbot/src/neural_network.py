@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from consts import ACTION_SIZE
+from .consts import ACTION_SIZE
 
 class Anon(nn.Module):
     def __init__(self, in_channels=18, filters=64, action_size=ACTION_SIZE):

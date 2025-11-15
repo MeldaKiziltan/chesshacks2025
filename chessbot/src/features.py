@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import random
 from torch import Tensor
-from consts import PIECE_TYPES
+from .consts import PIECE_TYPES
 
 
 # -------------------------
