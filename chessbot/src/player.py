@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import random
 from torch import Tensor
 from typing import Tuple
-from chessbot.src.neural_network import Anon
-from .features import board_to_tensor, move_to_index
+from .neural_network import Anon  # <-- FIX 1: Changed from 'chessbot.src' to '.'
+from .features import board_to_tensor, move_to_index, index_to_move  # <-- FIX 2: Added index_to_move
 
 
 class Player:
@@ -27,8 +27,14 @@ class Player:
 
     def load_model(self, path: str):
         """Load a trained model from disk."""
-        self.model.load_state_dict(torch.load(path, map_location=self.device))
-        print(f"Loaded model from {path}")
+        checkpoint = torch.load(path, map_location=self.device)
+        if 'model_state' in checkpoint:
+            self.model.load_state_dict(checkpoint['model_state'])
+            print(f"Loaded model state from checkpoint: {path}")
+        else:
+            # Fallback for if it was saved directly (e.g., not from training script)
+            self.model.load_state_dict(checkpoint)
+            print(f"Loaded model state from raw file: {path}")
 
     def select_move(
         self, board: chess.Board, sample: bool = False, temperature: float = 1.0
@@ -83,6 +89,6 @@ class Player:
         move_probs = {m: probs[move_to_index(m)].item() for m in legal_moves}
 
         # translate chosen index to move
-        from .features import index_to_move
+        # from .features import index_to_move
         chosen_move = index_to_move(idx)
         return chosen_move, move_probs

@@ -1,15 +1,29 @@
 from .utils import chess_manager, GameContext
 from .player import Player
 import torch
+import os
 
 # ============================================================================
 # INITIALIZATION
 # ============================================================================
 
+# --- NEW: Point to the model you trained ---
+# Build a path from this file (src/main.py) up one level to the root
+# where 'best_model.pt' is located.
+MODEL_FILE = os.path.join(os.path.dirname(__file__), "..", "best_model.pt")
+# --- END NEW ---
+
 # Initialize the neural network-powered player at module load time
 device = "cuda" if torch.cuda.is_available() else "cpu"
-player = Player(device=device)
-print(f"Chess player initialized (device: {device})")
+
+# --- MODIFIED: Pass the model_path to the Player ---
+if os.path.exists(MODEL_FILE):
+    player = Player(model_path=MODEL_FILE, device=device)
+    print(f"Chess player initialized with model: {MODEL_FILE} (device: {device})")
+else:
+    player = Player(device=device)
+    print(f"Warning: 'best_model.pt' not found. Player initialized with new, untrained model.")
+# --- END MODIFIED ---
 
 
 # ============================================================================
