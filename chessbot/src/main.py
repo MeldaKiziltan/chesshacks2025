@@ -6,15 +6,10 @@ import torch
 # INITIALIZATION
 # ============================================================================
 
-# Initialize the neural network-powered player once at startup
-player = None
-
-def initialize_player():
-    """Load the model once when the service starts."""
-    global player
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    player = Player(device=device)
-    print(f"✓ Chess player initialized (device: {device})")
+# Initialize the neural network-powered player at module load time
+device = "cuda" if torch.cuda.is_available() else "cpu"
+player = Player(device=device)
+print(f"Chess player initialized (device: {device})")
 
 
 # ============================================================================
@@ -35,11 +30,6 @@ def select_move(ctx: GameContext):
     Returns:
         A legal chess.Move object
     """
-    global player
-    
-    if player is None:
-        raise RuntimeError("Player not initialized. Call initialize_player() first.")
-    
     # Get the best move from the neural network
     move, move_probabilities = player.select_move(ctx.board, temperature=1.0)
     

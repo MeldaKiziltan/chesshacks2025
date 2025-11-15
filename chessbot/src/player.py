@@ -6,7 +6,7 @@ import random
 from torch import Tensor
 from typing import Tuple
 from nueral_network import Anon
-from consts import ACTION_SIZE, PIECE_TYPES
+from consts import PIECE_TYPES
 
 
 # -------------------------
