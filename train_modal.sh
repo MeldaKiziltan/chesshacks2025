@@ -30,7 +30,6 @@ echo "------------------------------------------"
 modal run src/training/train_cli.py \
   --use-modal \
   --pgn "$PGN_PATH" \
-  --init-from "$INIT_CKPT" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   --lr "$LR" \

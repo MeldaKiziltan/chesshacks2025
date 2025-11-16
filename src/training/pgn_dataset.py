@@ -49,13 +49,12 @@ class PGNDataset(Dataset):
                 if game is None:
                     break
                 result = game.headers.get('Result', '*')
-                outcome = 0.0
                 if result == '1-0':
-                    outcome = 1.0
+                    outcome_for_white = 1.0
                 elif result == '0-1':
-                    outcome = -1.0
+                    outcome_for_white = -1.0
                 else:
-                    outcome = 0.0
+                    outcome_for_white = 0.0
 
                 board = game.board()
                 move_count = 0
@@ -63,7 +62,13 @@ class PGNDataset(Dataset):
                     if move_count >= max_moves_per_game:
                         break
                     idx = move_to_index(move)
-                    # store FEN rather than board obj to reduce memory
+
+                    # NEW: label from side-to-move perspective
+                    if board.turn == chess.WHITE:
+                        outcome = outcome_for_white
+                    else:
+                        outcome = -outcome_for_white
+
                     self.examples.append((board.fen(), idx, outcome))
                     board.push(move)
                     move_count += 1

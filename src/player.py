@@ -101,12 +101,12 @@ class Player:
         temperature: float,
     ) -> Tuple[chess.Move, Dict[chess.Move, float]]:
         """Use only the policy head to pick a move (no search)."""
-        x = board_to_tensor(board).unsqueeze(0).to(self.device)  # (1,18,8,8)
+        x = board_to_tensor(board).unsqueeze(0).to(self.device)
 
         self.model.eval()
         with torch.no_grad():
-            logits, value = self.model(x)   # logits: (1,4096), value: (1,) or (1,1)
-        logits = logits.squeeze(0)          # (4096,)
+            logits, value = self.model(x)  
+        logits = logits.squeeze(0)
 
         # Temperature scaling
         if temperature != 1.0:
@@ -157,29 +157,28 @@ class Player:
 
     def _evaluate_position(self, board: chess.Board) -> float:
         """
-        Evaluate a position with the value head.
-
-        IMPORTANT:
-        - Value is trained as final game result from WHITE's perspective:
-          +1 = white win, -1 = black win, 0 = draw.
-        - So here we always return "how good this is for White", regardless of side to move.
+        Evaluate a position from the perspective of the SIDE TO MOVE.
+        +1 = winning for side-to-move, -1 = losing for side-to-move.
         """
-        # Terminal positions: use true result directly, matching your PGN labeling
+        # Terminal: derive side-to-move value consistent with training
         if board.is_game_over():
             result = board.result()
             if result == "1-0":
-                return 1.0   # white won
+                outcome_for_white = 1.0
             elif result == "0-1":
-                return -1.0  # black won
+                outcome_for_white = -1.0
             else:
-                return 0.0   # draw
+                outcome_for_white = 0.0
 
-        # Non-terminal: ask the NN
+            # Convert to side-to-move perspective
+            return outcome_for_white if board.turn == chess.WHITE else -outcome_for_white
+
+        # Non-terminal: NN output is already trained as side-to-move value
         x = board_to_tensor(board).unsqueeze(0).to(self.device)
         self.model.eval()
         with torch.no_grad():
-            _, value = self.model(x)  # ignore policy
-        return float(value.view(()).item())  # scalar: "good for White"
+            _, value = self.model(x)
+        return float(value.view(()).item())
 
 
     def _policy_ordered_moves(
@@ -224,72 +223,46 @@ class Player:
 
         return sorted_moves, sorted_probs
 
-    def _search_minimax(
-        self,
-        board: chess.Board,
-        depth: int,
-        alpha: float,
-        beta: float,
+    def _search_negamax(
+    self,
+    board: chess.Board,
+    depth: int,
+    alpha: float,
+    beta: float,
     ) -> float:
         """
-        Minimax with alpha–beta pruning using WHITE-perspective values.
-
-        - If it's White to move: maximize the eval (good for White).
-        - If it's Black to move: minimize the eval (bad for White = good for Black).
+        Negamax with alpha–beta pruning using SIDE-TO-MOVE perspective values.
         """
         if depth == 0 or board.is_game_over():
-            return self._evaluate_position(board)  # WHITE-perspective scalar
+            return self._evaluate_position(board)  # already side-to-move
+
+        best_value = -float("inf")
 
         ordered_moves, _ = self._policy_ordered_moves(board)
         if not ordered_moves:
-            # No legal moves (checkmate/stalemate) – eval handles it
             return self._evaluate_position(board)
 
-        if board.turn == chess.WHITE:
-            # Maximizing player
-            best_value = -float("inf")
-            for move in ordered_moves:
-                board.push(move)
-                score = self._search_minimax(board, depth - 1, alpha, beta)
-                board.pop()
+        for move in ordered_moves:
+            board.push(move)
+            score = -self._search_negamax(board, depth - 1, -beta, -alpha)
+            board.pop()
 
-                if score > best_value:
-                    best_value = score
-                if best_value > alpha:
-                    alpha = best_value
-                if alpha >= beta:
-                    break  # beta cutoff
-            return best_value
-        else:
-            # Minimizing player (Black)
-            best_value = float("inf")
-            for move in ordered_moves:
-                board.push(move)
-                score = self._search_minimax(board, depth - 1, alpha, beta)
-                board.pop()
+            if score > best_value:
+                best_value = score
+            if best_value > alpha:
+                alpha = best_value
+            if alpha >= beta:
+                break  # cutoff
 
-                if score < best_value:
-                    best_value = score
-                if best_value < beta:
-                    beta = best_value
-                if alpha >= beta:
-                    break  # alpha cutoff
-            return best_value
+        return best_value
 
 
     def _select_with_search(
-        self,
-        board: chess.Board,
-        search_depth: int = 2,
-    ) -> Tuple[chess.Move, Dict[chess.Move, float]]:
-        """
-        Use alpha–beta minimax search guided by NN policy & value.
-
-        - Policy head used for move ordering at each node.
-        - Value head used to evaluate leaf positions (WHITE-perspective).
-        - Root move is chosen by maximizing or minimizing based on side to move.
-        """
-        # Root policy for logging (same as policy-only path)
+    self,
+    board: chess.Board,
+    search_depth: int = 2,
+) -> Tuple[chess.Move, Dict[chess.Move, float]]:
+        # Root policy for logging
         x = board_to_tensor(board).unsqueeze(0).to(self.device)
         self.model.eval()
         with torch.no_grad():
@@ -312,39 +285,23 @@ class Player:
             for m, p in zip(legal_moves, legal_probs.tolist())
         }
 
-        # Now search for best move according to WHITE-perspective eval
+        # Negamax at root: side-to-move wants to maximize eval
         best_move = None
+        best_score = -float("inf")
         alpha, beta = -float("inf"), float("inf")
 
-        if board.turn == chess.WHITE:
-            # White wants to maximize eval
-            best_score = -float("inf")
-            for move in legal_moves:
-                board.push(move)
-                score = self._search_minimax(board, search_depth - 1, alpha, beta)
-                board.pop()
+        for move in legal_moves:
+            board.push(move)
+            score = -self._search_negamax(board, search_depth - 1, -beta, -alpha)
+            board.pop()
 
-                if score > best_score:
-                    best_score = score
-                    best_move = move
-                if score > alpha:
-                    alpha = score
-        else:
-            # Black wants to minimize eval
-            best_score = float("inf")
-            for move in legal_moves:
-                board.push(move)
-                score = self._search_minimax(board, search_depth - 1, alpha, beta)
-                board.pop()
-
-                if score < best_score:
-                    best_score = score
-                    best_move = move
-                if score < beta:
-                    beta = score
+            if score > best_score:
+                best_score = score
+                best_move = move
+            if score > alpha:
+                alpha = score
 
         if best_move is None:
             best_move = random.choice(legal_moves)
 
         return best_move, move_probs
-

@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import random
 from torch import Tensor
-from .consts import PIECE_TYPES
+from .consts import BASE_ACTIONS, ID_TO_PROMO, PIECE_TYPES, PROMO_TO_ID
 
 
 # -------------------------
@@ -120,52 +120,26 @@ _build_move_maps()
 
 
 def move_to_index(move: chess.Move) -> int:
-    return move.from_square * 64 + move.to_square
-
-
-def index_to_move(index: int) -> chess.Move:
-    """Convert index back to python-chess Move (no promotion info handled).
-    Note: for promotion, this simple mapping won't encode promotion piece.
-    For many starters that's OK but be aware it's limited.
     """
-    from_sq = index // 64
-    to_sq = index % 64
-    return chess.Move(from_sq, to_sq)
+    Map a python-chess Move to a flat action index in [0, ACTION_SIZE).
+
+    Layout:
+        idx = (from * 64 + to) + promo_id * BASE_ACTIONS
+    where promo_id encodes the promotion piece (or none).
+    """
+    base = move.from_square * 64 + move.to_square
+    promo_id = PROMO_TO_ID.get(move.promotion, 0)
+    return base + promo_id * BASE_ACTIONS
 
 
-# def choose_move(model, board: chess.Board, device='cpu', sample=False, temperature=1.0) -> chess.Move:
-#     """Given a board, return a python-chess Move chosen by the network.
-#     - apply legal move mask
-#     - either pick argmax or sample from distribution
-#     """
-#     model.eval()
-#     tensor = board_to_tensor(board).unsqueeze(0).to(device)  # [1,C,8,8]
-#     with torch.no_grad():
-#         logits, value = model(tensor)
-#     logits = logits.squeeze(0)  # [ACTION_SIZE]
-#
-#     # compute probabilities
-#     if temperature != 1.0:
-#         logits = logits / temperature
-#     probs = F.softmax(logits, dim=0)
-#
-#     # legal mask
-#     legal = list(board.legal_moves)
-#     if len(legal) == 0:
-#         return None
-#     legal_indices = [move_to_index(m) for m in legal]
-#     mask = torch.zeros_like(probs)
-#     mask[legal_indices] = 1.0
-#     probs = probs * mask
-#     s = probs.sum().item()
-#     if s <= 0:
-#         # numerical safety: fallback to uniform over legal
-#         chosen = random.choice(legal)
-#         return chosen
-#     probs = probs / probs.sum()
-#
-#     if sample:
-#         idx = torch.multinomial(probs, num_samples=1).item()
-#     else:
-#         idx = torch.argmax(probs).item()
-#     return index_to_move(idx)
+def index_to_move(idx: int) -> chess.Move:
+    """
+    Inverse of move_to_index: map index back to a chess.Move.
+
+    If promo_id == 0, it's a normal move.
+    If > 0, it's a promotion move.
+    """
+    promo_id, base = divmod(idx, BASE_ACTIONS)
+    from_sq, to_sq = divmod(base, 64)
+    promotion_piece = ID_TO_PROMO.get(promo_id, None)
+    return chess.Move(from_sq, to_sq, promotion=promotion_piece)

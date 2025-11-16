@@ -74,7 +74,7 @@ except Exception as e:
 @chess_manager.entrypoint
 def select_move(ctx: GameContext):
     """Called every time the bot needs to make a move."""
-    move, move_probabilities = player.select_move(ctx.board, temperature=1.0, use_search=True, search_depth=3)
+    move, move_probabilities = player.select_move(ctx.board, temperature=1.0)
     ctx.logProbabilities(move_probabilities)
     return move
 
