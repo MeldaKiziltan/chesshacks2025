@@ -100,7 +100,9 @@ class Player:
         sample: bool,
         temperature: float,
     ) -> Tuple[chess.Move, Dict[chess.Move, float]]:
-        """Use only the policy head to pick a move (no search)."""
+        """Use only the policy head to pick a move (no search),
+        but *always* take a checkmating move if one exists.
+        """
         x = board_to_tensor(board).unsqueeze(0).to(self.device)  # (1,18,8,8)
 
         self.model.eval()
@@ -132,14 +134,19 @@ class Player:
         legal_probs = legal_probs / legal_probs.sum()
 
         # ---------------------------------------------------------------------
-        # PROMOTION OVERRIDE
+        # 1. CHECKMATE-IN-ONE OVERRIDE
         # ---------------------------------------------------------------------
-        promotion_indices = [i for i, m in enumerate(legal_moves) if m.promotion is not None]
+        mating_move_indices = []
+        for i, m in enumerate(legal_moves):
+            board.push(m)
+            if board.is_checkmate():
+                mating_move_indices.append(i)
+            board.pop()
 
-        if promotion_indices:
-            # Choose the promotion move with highest NN probability
-            best_promo_idx = max(promotion_indices, key=lambda i: legal_probs[i].item())
-            chosen_move = legal_moves[best_promo_idx]
+        if mating_move_indices:
+            # If multiple mates exist, choose the one with highest NN probability
+            best_idx = max(mating_move_indices, key=lambda i: legal_probs[i].item())
+            chosen_move = legal_moves[best_idx]
 
             move_probs = {
                 m: float(p)
@@ -149,12 +156,56 @@ class Player:
             if DEBUG_POLICY:
                 top = sorted(move_probs.items(), key=lambda kv: kv[1], reverse=True)[:5]
                 top_str = ", ".join(f"{m}: {p:.3f}" for m, p in top)
-                log(f"[PROMO] Forcing promotion: {chosen_move} | top moves: {top_str}")
+                log(f"[MATE] Forcing checkmate-in-1: {chosen_move} | top moves: {top_str}")
 
             return chosen_move, move_probs
         # ---------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 2. AVOID MOVES THAT LET OPPONENT MATE IN 1 (optional)
+        # ---------------------------------------------------------------------
+        safe_mask = [True] * len(legal_moves)
 
-        # No promotions available: fall back to normal policy logic
+        for i, m in enumerate(legal_moves):
+            board.push(m)
+            # Opponent to move now; check if they have a mate-in-1
+            for reply in board.legal_moves:
+                board.push(reply)
+                if board.is_checkmate():
+                    safe_mask[i] = False
+                    board.pop()
+                    break
+                board.pop()
+            board.pop()
+
+        safe_indices = [i for i, ok in enumerate(safe_mask) if ok]
+
+        # If there is at least one "safe" move, renormalize over them only
+        if safe_indices:
+            safe_probs = legal_probs[safe_indices]
+            safe_probs = safe_probs / safe_probs.sum()
+
+            if sample:
+                chosen_idx = random.choices(safe_indices, weights=safe_probs.tolist(), k=1)[0]
+            else:
+                # index of max prob inside safe_indices
+                local_best = int(torch.argmax(safe_probs).item())
+                chosen_idx = safe_indices[local_best]
+
+            chosen_move = legal_moves[chosen_idx]
+
+            move_probs = {
+                m: float(p)
+                for m, p in zip(legal_moves, legal_probs.tolist())
+            }
+
+            if DEBUG_POLICY:
+                log(f"[SAFE] Avoiding moves that allow mate-in-1. Chosen: {chosen_move}")
+
+            return chosen_move, move_probs
+        # If *all* moves allow mate-in-1, we just fall back to normal policy.
+        # ---------------------------------------------------------------------
+
+        # 2. Normal NN policy selection if no mate-in-1
         if sample:
             idx_in_legal = torch.multinomial(legal_probs, num_samples=1).item()
         else:
@@ -173,6 +224,7 @@ class Player:
             log(f"Policy-only choice: {chosen_move} | top moves: {top_str}")
 
         return chosen_move, move_probs
+
 
 
 
