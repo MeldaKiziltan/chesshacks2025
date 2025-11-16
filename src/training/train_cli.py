@@ -80,18 +80,15 @@ def download_best_model():
             "python-chess",
             "numpy",
             "tqdm",
-            "huggingface-hub",
+            "huggingface_hub"
         )
-        .env({
-            "PYTHONPATH": "/root:/root/src",
-        })
+        .env({"PYTHONPATH": "/root:/root/src"})
         .add_local_dir(src_dir, remote_path="/root/src")
     ),
     volumes={"/data": data_vol},
     gpu="A100",
-    timeout=86400, # 24h max runtime
+    timeout=86400,
 )
-
 def train_on_modal(
     pgn_path: str,
     epochs: int,
