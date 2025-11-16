@@ -101,18 +101,18 @@ class Player:
         temperature: float,
     ) -> Tuple[chess.Move, Dict[chess.Move, float]]:
         """Use only the policy head to pick a move (no search)."""
-        x = board_to_tensor(board).unsqueeze(0).to(self.device)
+        x = board_to_tensor(board).unsqueeze(0).to(self.device)  # (1,18,8,8)
 
         self.model.eval()
         with torch.no_grad():
-            logits, value = self.model(x)  
+            logits, value = self.model(x)
         logits = logits.squeeze(0)
 
         # Temperature scaling
         if temperature != 1.0:
             logits = logits / max(1e-8, temperature)
 
-        full_probs = F.softmax(logits, dim=0)  # (4096,)
+        full_probs = F.softmax(logits, dim=0)
 
         legal_moves = list(board.legal_moves)
         if not legal_moves:
@@ -128,9 +128,33 @@ class Player:
             move_probs = {m: uniform_p for m in legal_moves}
             return chosen, move_probs
 
+        # Normalize over legal moves
         legal_probs = legal_probs / legal_probs.sum()
 
-        # Choose move
+        # ---------------------------------------------------------------------
+        # PROMOTION OVERRIDE
+        # ---------------------------------------------------------------------
+        promotion_indices = [i for i, m in enumerate(legal_moves) if m.promotion is not None]
+
+        if promotion_indices:
+            # Choose the promotion move with highest NN probability
+            best_promo_idx = max(promotion_indices, key=lambda i: legal_probs[i].item())
+            chosen_move = legal_moves[best_promo_idx]
+
+            move_probs = {
+                m: float(p)
+                for m, p in zip(legal_moves, legal_probs.tolist())
+            }
+
+            if DEBUG_POLICY:
+                top = sorted(move_probs.items(), key=lambda kv: kv[1], reverse=True)[:5]
+                top_str = ", ".join(f"{m}: {p:.3f}" for m, p in top)
+                log(f"[PROMO] Forcing promotion: {chosen_move} | top moves: {top_str}")
+
+            return chosen_move, move_probs
+        # ---------------------------------------------------------------------
+
+        # No promotions available: fall back to normal policy logic
         if sample:
             idx_in_legal = torch.multinomial(legal_probs, num_samples=1).item()
         else:
@@ -144,41 +168,12 @@ class Player:
         }
 
         if DEBUG_POLICY:
-            # Sort to display top few moves
             top = sorted(move_probs.items(), key=lambda kv: kv[1], reverse=True)[:5]
             top_str = ", ".join(f"{m}: {p:.3f}" for m, p in top)
             log(f"Policy-only choice: {chosen_move} | top moves: {top_str}")
 
         return chosen_move, move_probs
 
-    # -------------------------------------------------------------------------
-    # Alpha–beta search using NN value head + policy ordering
-    # -------------------------------------------------------------------------
-
-    def _evaluate_position(self, board: chess.Board) -> float:
-        """
-        Evaluate a position from the perspective of the SIDE TO MOVE.
-        +1 = winning for side-to-move, -1 = losing for side-to-move.
-        """
-        # Terminal: derive side-to-move value consistent with training
-        if board.is_game_over():
-            result = board.result()
-            if result == "1-0":
-                outcome_for_white = 1.0
-            elif result == "0-1":
-                outcome_for_white = -1.0
-            else:
-                outcome_for_white = 0.0
-
-            # Convert to side-to-move perspective
-            return outcome_for_white if board.turn == chess.WHITE else -outcome_for_white
-
-        # Non-terminal: NN output is already trained as side-to-move value
-        x = board_to_tensor(board).unsqueeze(0).to(self.device)
-        self.model.eval()
-        with torch.no_grad():
-            _, value = self.model(x)
-        return float(value.view(()).item())
 
 
     def _policy_ordered_moves(
