@@ -14,7 +14,7 @@ import sys
 MODEL_FILE = os.path.join(os.path.dirname(__file__), "..", "best_model.pt")
 
 # 2. !! IMPORTANT !! Paste your Hugging Face or GitHub Release URL here
-MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model_12pp4.pt"
+MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model_5.pt"
 
 # 3. Initialize the player as a global, but set to None
 player = None

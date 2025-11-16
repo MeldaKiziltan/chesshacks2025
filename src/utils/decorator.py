@@ -106,11 +106,22 @@ class ChessManager:
         try:
             with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
                 result = self._func(self._ctx)
-        except Exception:
+        except Exception as e: # <-- Give the exception a name 'e'
+            import traceback # <-- Import the traceback module
+
             captured_output = buffer.getvalue()
             if captured_output:
                 self._logger.info("Model stdout/stderr:\n%s", captured_output)
-            raise
+            
+            # --- THIS IS THE FIX ---
+            # Print the full error stack trace to the console
+            self._logger.error("="*50)
+            self._logger.error("!!! EXCEPTION CAUGHT IN BOT !!!")
+            self._logger.error(traceback.format_exc())
+            self._logger.error("="*50)
+            # --- END OF FIX ---
+
+            raise # Re-raise the exception to send the 500 error
 
         captured_output = buffer.getvalue()
         if captured_output:

@@ -4,6 +4,7 @@ import math
 from .neural_network import Anon
 from .features import board_to_tensor
 from typing import Dict, Tuple, Optional
+import chess.polyglot
 
 # --- HEURISTICS: MATERIAL VALUES ---
 # Your request: focus on the importance of capturing pieces.
@@ -28,7 +29,7 @@ class Searcher:
         self.model = model
         self.device = device
         self.nodes_searched = 0
-        self.default_depth = 5 # <-- INCREASED to 5-ply. Will find/block Mates-in-2
+        self.default_depth = 2 # <-- INCREASED to 5-ply. Will find/block Mates-in-2
         
         # Transposition Table (cache)
         # This stores (Zobrist hash, depth) -> (score, best_move)
@@ -152,7 +153,7 @@ class Searcher:
         
         # Check transposition table
         # We combine hash and depth for a unique key
-        hash_key = chess.zobrist_hash(board) ^ (depth * 1000) 
+        hash_key = chess.polyglot.zobrist_hash(board) ^ (depth * 1000)
         if hash_key in self.transposition_table:
             cached_score, cached_move = self.transposition_table[hash_key]
             # If we have a valid move, we can use it for move ordering

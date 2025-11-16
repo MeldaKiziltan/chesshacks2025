@@ -120,17 +120,24 @@ _build_move_maps()
 
 
 def move_to_index(move: chess.Move) -> int:
-    return move.from_square * 64 + move.to_square
+    """
+    Converts a chess.Move object to its corresponding index in the 4672-action space.
+    """
+    # The map doesn't include Queen promotions (they are "normal" moves)
+    # so we must set promotion to None if it's a Queen.
+    if move.promotion == chess.QUEEN:
+        move.promotion = None
+    
+    # Return 0 (a "null" move) if the move isn't in our map
+    return _MOVE_TO_LABEL_MAP.get(move, 0)
 
 
 def index_to_move(index: int) -> chess.Move:
-    """Convert index back to python-chess Move (no promotion info handled).
-    Note: for promotion, this simple mapping won't encode promotion piece.
-    For many starters that's OK but be aware it's limited.
     """
-    from_sq = index // 64
-    to_sq = index % 64
-    return chess.Move(from_sq, to_sq)
+    Converts an index from the 4672-action space back to a chess.Move object.
+    """
+    # Return None if the index is invalid
+    return _LABEL_TO_MOVE_MAP.get(index, None)
 
 
 # def choose_move(model, board: chess.Board, device='cpu', sample=False, temperature=1.0) -> chess.Move:
