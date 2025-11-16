@@ -2,17 +2,21 @@ from .utils import chess_manager, GameContext
 from .player import Player
 import torch
 import os
-import requests # <-- ADDED
-import sys # <-- ADDED
+import requests 
+import sys 
 
 # ============================================================================
-# INITIALIZATION
+# INITIALIZATION (LAZY + DOWNLOAD)
 # ============================================================================
 
+# --- HACKATHON DOWNLOAD FIX ---
+# 1. Define the local path (this is correct)
 MODEL_FILE = os.path.join(os.path.dirname(__file__), "..", "best_model.pt")
 
-MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model_12mo.pt"
+# 2. !! IMPORTANT !! Paste your Hugging Face or GitHub Release URL here
+MODEL_URL = "https://huggingface.co/meldakiziltan/chesshacks2025/resolve/main/best_model_12pp4.pt"
 
+# 3. Initialize the player as a global, but set to None
 player = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -51,8 +55,9 @@ def get_player():
             player = Player(model_path=MODEL_FILE, device=device)
             print(f"[main.py] Chess player initialized with model: {MODEL_FILE} (device: {device})", file=sys.stderr)
         except Exception as e:
+            # This can happen if the file is the LFS pointer!
             print(f"FATAL: Failed to load model from {MODEL_FILE}: {e}", file=sys.stderr)
-            print("The file might be corrupt. Initializing untrained model.", file=sys.stderr)
+            print("The file might be corrupt or an LFS pointer. Initializing untrained model.", file=sys.stderr)
             player = Player(device=device)
 
     return player
@@ -70,8 +75,11 @@ def select_move(ctx: GameContext):
     # Get the player (it will load/download on the first call)
     p = get_player()
     
-    # Get the best move from the neural network
-    move, move_probabilities = p.select_move(ctx.board, temperature=1.0)
+    # --- THIS IS THE FIX ---
+    # Pass the time left to the select_move function
+    # so the searcher can use it (if we add time logic later)
+    move, move_probabilities = p.select_move(ctx.board, ctx.timeLeft)
+    # --- END FIX ---
     
     # Log the move probabilities for the game engine
     ctx.logProbabilities(move_probabilities)

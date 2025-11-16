@@ -3,20 +3,20 @@ import torch
 import torch.nn.functional as F
 import random
 from torch import Tensor
-from typing import Tuple
-from .neural_network import Anon  # <-- FIX 1: Changed from 'chessbot.src' to '.'
-from .features import board_to_tensor, move_to_index, index_to_move  # <-- FIX 2: Added index_to_move
-
+from typing import Tuple, Dict
+from .neural_network import Anon
+from .features import board_to_tensor, move_to_index, index_to_move
+from .search import Searcher  # <-- IMPORT THE NEW BRAIN
 
 class Player:
-    """Chess player powered by a neural network."""
+    """
+    Chess player that combines a neural network with
+    a NegaMax (Alpha-Beta) search algorithm.
+    """
 
     def __init__(self, model_path: str = None, device: str = "cpu"):
-        """Initialize the Player with a neural network model.
-
-        Args:
-            model_path: Path to a saved model checkpoint. If None, initializes a new model.
-            device: Device to run the model on ("cpu" or "cuda").
+        """
+        Initialize the Player, model, and searcher.
         """
         self.device = torch.device(device)
         self.model = Anon().to(self.device)
@@ -24,6 +24,9 @@ class Player:
 
         if model_path:
             self.load_model(model_path)
+            
+        # --- NEW: Initialize the search brain ---
+        self.searcher = Searcher(self.model, self.device)
 
     def load_model(self, path: str):
         """Load a trained model from disk."""
@@ -32,63 +35,71 @@ class Player:
             self.model.load_state_dict(checkpoint['model_state'])
             print(f"Loaded model state from checkpoint: {path}")
         else:
-            # Fallback for if it was saved directly (e.g., not from training script)
             self.model.load_state_dict(checkpoint)
             print(f"Loaded model state from raw file: {path}")
+        self.model.eval() # Ensure model is in eval mode
 
     def select_move(
-        self, board: chess.Board, sample: bool = False, temperature: float = 1.0
+        self, board: chess.Board, time_limit_ms: int
     ) -> Tuple[chess.Move, dict]:
-        """Select a move using the neural network.
-
-        Args:
-            board: Current board state
-            sample: If True, sample from the policy distribution. If False, use argmax.
-            temperature: Controls randomness (higher = more random)
-
-        Returns:
-            Tuple of (selected_move, move_probabilities dict)
         """
-        # Single forward pass to get logits and value
-        tensor = board_to_tensor(board).unsqueeze(0).to(self.device)  # [1,18,8,8]
+        Selects a move by running the NegaMax search.
+        
+        The NN's policy is used for move ordering.
+        The NN's value is used for leaf node evaluation.
+        """
         self.model.eval()
+        
+        # --- 1. Get Policy Map from NN ---
+        # We do one forward pass to get the "intuition" (policy)
+        # for all legal moves. This is used for move ordering.
+        tensor = board_to_tensor(board).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            logits, value = self.model(tensor)
+            logits, _value = self.model(tensor)
         logits = logits.squeeze(0)
-
-        # apply temperature
-        if temperature != 1.0:
-            logits = logits / temperature
-
         probs = F.softmax(logits, dim=0)
 
-        # mask illegal moves
         legal_moves = list(board.legal_moves)
-        if len(legal_moves) == 0:
-            raise ValueError("No legal moves available")
-
-        mask = torch.zeros_like(probs)
-        legal_indices = [move_to_index(m) for m in legal_moves]
-        mask[legal_indices] = 1.0
-        probs = probs * mask
-        s = probs.sum().item()
-        if s <= 0:
-            # Fallback to uniform over legal moves
-            chosen = random.choice(legal_moves)
-            move_probs = {m: 1.0 / len(legal_moves) for m in legal_moves}
-            return chosen, move_probs
-        probs = probs / probs.sum()
-
-        # select move
-        if sample:
-            idx = torch.multinomial(probs, num_samples=1).item()
+        policy_map: Dict[chess.Move, float] = {}
+        
+        for move in legal_moves:
+            try:
+                idx = move_to_index(move) # Use correct 4864 mapping
+                policy_map[move] = probs[idx].item()
+            except Exception as e:
+                # This can happen for castling moves if not mapped
+                policy_map[move] = 0.0
+                
+        # Normalize probabilities
+        prob_sum = sum(policy_map.values())
+        if prob_sum > 0:
+            for move in policy_map:
+                policy_map[move] /= prob_sum
         else:
-            idx = torch.argmax(probs).item()
+            # Fallback to uniform if all legal moves had 0 prob
+            policy_map = {m: 1.0 / len(legal_moves) for m in legal_moves}
 
-        # build move probabilities dict
-        move_probs = {m: probs[move_to_index(m)].item() for m in legal_moves}
 
-        # translate chosen index to move
-        # from .features import index_to_move
-        chosen_move = index_to_move(idx)
-        return chosen_move, move_probs
+        # --- 2. Run the Search ---
+        # The searcher will use the policy_map for move ordering
+        # and will call self.evaluate() for deep evaluations.
+        best_move = self.searcher.find_best_move(board, policy_map, time_limit_ms)
+
+        # --- 3. Apply Promotion Guardrail ---
+        # Your hardcoded fix, which is still a great idea!
+        if best_move.promotion is not None and best_move.promotion != chess.QUEEN:
+            print(f"Warning: Searcher chose underpromotion {best_move.uci()}. Forcing Queen.")
+            forced_queen_move = chess.Move(
+                best_move.from_square,
+                best_move.to_square,
+                promotion=chess.QUEEN
+            )
+            # Check if this forced move is actually legal
+            if forced_queen_move in legal_moves:
+                best_move = forced_queen_move
+            else:
+                # This should not happen, but as a fallback, don't change the move
+                print(f"Warning: Could not force queen promotion {forced_queen_move.uci()}. Move not legal.")
+
+
+        return best_move, policy_map
