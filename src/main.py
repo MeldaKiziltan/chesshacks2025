@@ -3,7 +3,6 @@ import datetime
 
 import torch
 from huggingface_hub import hf_hub_download
-
 from .utils import chess_manager, GameContext
 from .player import Player
 
